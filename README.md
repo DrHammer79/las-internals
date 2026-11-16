@@ -14,7 +14,7 @@ virtual addresses as loaded at `0x7000000000` (`main+0x83a470` = `0x700083a470`)
 - [`hookshot-drop-in-investigation.md`](hookshot-drop-in-investigation.md) - an open question: a Link made mid-level
   (drop-in co-op) has a hookshot that passes through enemies until the next level load. What we traced, and
   what's still unknown.
-- `las-game-internals.md` - the main reference (coming): singletons, the actor system, Link, collision, enemies,
+- [`las-game-internals.md`](las-game-internals.md) - the main reference: singletons, the actor system, Link, collision, enemies,
   events, warps, HUD, audio, and every patch and hook site used by the
   [co-op fork](https://github.com/DrHammer79/LASRecomp).
 
