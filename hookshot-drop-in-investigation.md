@@ -94,7 +94,7 @@ those not playing are benched - parked at y -1000, switched off with their items
 updates skipped (the Link's, his camera's at `+0x318`, his items'). Joining switches the benched Link on (virtual
 `+0xc8`) and puts it beside Player 1; leaving benches it again. Checked: a player joined mid-level this way stuns
 the Octorok, also after his benched Link sat through a level change; no load time measurable from the seven extra
-Links; a Game Over removes and remakes them. So whatever a load gives actors made during it, a Link made then and
+Links; a Game Over removes and remakes them; and in real play with real controllers (confirmed 2026-11-16). So whatever a load gives actors made during it, a Link made then and
 switched on later keeps it. What that is remains the open question below.
 
 ## Questions for someone who knows the engine
