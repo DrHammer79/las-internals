@@ -1,7 +1,7 @@
 # LAS internals
 
 A shared map of *The Legend of Zelda: Link's Awakening* (Nintendo Switch) internals for people modding it - through
-[LAS Recomp](https://github.com/Peiikai/LASRecomp) and its forks, or otherwise: addresses, struct offsets, what
+[LAS Recomp](https://github.com/peiikai/LASRecomp) and its forks, or otherwise: addresses, struct offsets, what
 functions and objects do, and the hook sites mods use. Facts about the program only - no game code, assets, text or
 files.
 
