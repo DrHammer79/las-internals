@@ -84,6 +84,18 @@ engine's internal copy made when the shape was added.
   in their updates (`player_item_of`) - right, but not the cause.
 - The attack component's `+0xe0` (an early lead: two different objects were being compared).
 - The `player:hook` record's list at `+0x20`..`+0x30` (a growing pointer list, not remade by a load).
+- Switching the joined Link's items off and on again later (virtual `+0xc0` then `+0xc8`, a hundred frames after
+  the join): still goes through. The same done to a hook made at a load: still hits.
+
+## How the co-op fork works around it (2026-11-16)
+
+Every player's Link is made as the level loads (the player creator run for players 2..8 alongside Player 1);
+those not playing are benched - parked at y -1000, switched off with their items (virtual `+0xc0`), and their
+updates skipped (the Link's, his camera's at `+0x318`, his items'). Joining switches the benched Link on (virtual
+`+0xc8`) and puts it beside Player 1; leaving benches it again. Checked: a player joined mid-level this way stuns
+the Octorok, also after his benched Link sat through a level change; no load time measurable from the seven extra
+Links; a Game Over removes and remakes them. So whatever a load gives actors made during it, a Link made then and
+switched on later keeps it. What that is remains the open question below.
 
 ## Questions for someone who knows the engine
 
