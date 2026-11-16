@@ -1088,7 +1088,9 @@ Plus 696 more patch sites not in the table: every `ldr xT, [xN, #0x4b8]` in main
    `hookshot-drop-in-investigation.md` in this folder. More: a hook made at a load and switched off and on
    (virtual +0xc0 then +0xc8) still hits; one made in play and switched off and on still doesn't. The co-op fork
    now avoids it by making every player's Link as the level loads and keeping the unused ones parked, switched
-   off and not updated until a player joins (2026-11-16).
+   off and not updated until a player joins (2026-11-16). Note: a level load switches on (virtual +0xc8) every
+   actor it has, including ones switched off during the load and after each level change - seen ~70 frames after
+   a file load and right after a warp - so an actor kept off has to be switched off again after each load.
 2. Is there a function the game itself uses to register a newly made actor's collision with the current level?
 3. Unconfirmed in 1.0.1: the 1.0.0-era function offsets marked `(inferred)` above; save code offsets in 2.3.
 4. Not explained: Link +0x41, +0x1948; GAME_MGR +0x4a8 described both as the player entity and as the scene handle.
