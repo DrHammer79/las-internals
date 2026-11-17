@@ -64,7 +64,7 @@ A pointer global; dereference it to get the manager.
 | Offset | What | Source |
 |---|---|---|
 | +0x498 | Container actors are registered in by name (`main+0xfb3360` registers; the pointer never changes) | investigation |
-| +0x4a8 | The player entity (coop.c, warp.c) / "the current scene (weak)" (digs.c: handed to `SCENE_LOCK`). Chain: entity +0x88 = its object (via `0x7000011b70`); object +0x618 = player component; object +0x660 arrival point, +0x680 Link's spot on safe ground (snapped to 0.75), +0x690 facing, +0x694 "spot set" | coop.md, warp.c, digs.c |
+| +0x4a8 | The game state machine (made by `Framework_Init` `0x7000009410` through the factory `0x700000c450`, vtable `0x7001bc4300`; the main loop ends when its +0x80 is set). Its +0x88 is the **current scene** (a type-checked shared_ptr, through `0x7000011b70`; digs.c hands +0x4a8 to `SCENE_LOCK`). Scene +0x618 = the room manager (the level's Play task, stored by `0x700083afa0`); scene +0x660 arrival point, +0x680 Link's spot on safe ground (snapped to 0.75), +0x690 facing, +0x694 "spot set". Earlier notes called +0x4a8 "the player entity" and +0x618 "the player component" - wrong (checked against the code 2026-11-17; LASAP's names: GameState, LevelScene, RoomManager) | coop.md, warp.c, digs.c |
 | +0x4b8 | **The player: Link's actor.** Null on boot / title / file select; non-null = in play (`game_in_play`). "Link" to all game code (696 loads of it in main, 531 with the manager as base) | coop.md, warp.c |
 | +0x4c0 | +0x4b8's shared_ptr control block (`COOP_SET_PLAYER` assigns both, counted) | coop.c |
 | +0x4e0 | Frame controller: extra world steps this frame (30 fps mode = 2 steps a frame; counts the extra one down) | nvn/pace.c |
@@ -74,13 +74,15 @@ A pointer global; dereference it to get the manager.
 
 Setter: `0x70008387c0` (`COOP_SET_PLAYER`): x0 manager, x1 &shared_ptr -> +0x4b8 / +0x4c0.
 
-Restart point: Link's update (`0x7000d355c0`) looks up the entity (`ldr x1, [x20, #0x4a8]` at `0x7000d35778`, then
-`0x7000011b70`), `cbz` at `0x7000d35788` for no object, and standing on safe ground writes +0x680 / +0x690 / +0x694.
+Restart point: Link's update (`0x7000d355c0`) looks up the scene (`ldr x1, [x20, #0x4a8]` at `0x7000d35778`, then
+`0x7000011b70`), `cbz` at `0x7000d35788` for no scene, and standing on safe ground writes +0x680 / +0x690 / +0x694.
 The save copies it to file +0x559c (`0x7000dfc710` -> `0x7000dfcb90`: +0x680 when +0x694 is set, else +0x660). (coop.md)
 
-Level-jump processor's player component check: entity [gm+0x4a8] -> [+0x88] -> [+0x618] (type-checked shared_ptrs
-via `0x700001b730` / `0x7000011b70`), then `0x7000864d50` is called with it unchecked (null+0x3f8 crash, return
-address `0x700081bdc8`) if a jump is handed over mid level change. (warp.c)
+Level-jump processor's room manager check: game state [gm+0x4a8] -> scene [+0x88] -> room manager [+0x618]
+(type-checked shared_ptrs via `0x700001b730` / `0x7000011b70`), then the room manager's level jump `0x7000864d50`
+(level, locator, offset; only in its state +0x3f8 == 1) is called with it unchecked (null+0x3f8 crash, return
+address `0x700081bdc8`) if a jump is handed over mid level change: between scenes there is no room manager. (warp.c;
+upstream's warp.c calls it "the player component")
 
 ### 2.2 PlayerStatus - `[0x7001cc1368]` (`PLAYER_STATUS_PTR`)
 
@@ -266,7 +268,10 @@ Names the fork matches in the type table: `Enemy...` (enemies), `EnemyZolGreen`,
 - **Effect player** (TailorPlayer: "<kind>:TailorPlayerComp", "ActorTailorPlayer"): built in place (vtable stored at
   `0x7000c53ac0` and `0x7000e24c1c`), destructor `0x7000e3b510`. Its "Link" read `0x7000e4ffa4` compares Link's
   zone (+0xb0) with its owner's to decide whether effects play. `TAILOR_PREPARE` `0x70010d4ee0` / `TAILOR_PLAY`
-  `0x70010d4410` (x0 tailor, x1 &{channel ptr, len}, x2 &{effect ptr, len}).
+  `0x70010d4410` (x0 tailor, x1 &{channel ptr, len}, x2 &{effect ptr, len}). `TAILOR_PREPARE` (upstream's name)
+  **stops** that channel's sequence: it finds and frees it; of its 588 callers 364 play the same right after (a
+  restart from the start), the rest only stop - e.g. the event action StopTailorOtherChannel (`0x70000f8e30`)
+  (checked against the code 2026-11-17; LASAP names it Tailor_StopValue).
 - **Event component** (what an event's PlayAnimation runs on; the action dispatcher `0x70001049a0`'s actor): +8
   points at itself, +0xb0 the play-animation callback (std::function callable; its vtable's call slot +0x30). Enemies
   hold theirs at +0x12e0. `PLAY_ANIMATION` `0x7000119810`: x0 = [comp+0xb0], x1 &{name ptr, len}, x2 mode (0 start),
@@ -528,8 +533,9 @@ this vtable); +0x168 = hit points (0 = dies). (miniboss.c)
   empty std::function throws bad_function_call (1.0.1 site `0x700108ee98`), caught in the same function to abort
   the event. Event dispatcher (1.0.0 `0x700108ddc0`) calls a handler through the std::function call (1.0.0
   `0x700108dfc0`; 1.0.1 call site `0x700108df18`). Missing event parameters throw: String (1.0.0 `0x700109fb80`),
-  Float (1.0.0 `0x700109fad0`; inferred 1.0.1 +0xd0 each). The Float reader `0x70007f3c90` treats time <= 0 as
-  instant. Recompiled code cannot unwind, so these are hooked (section 8.2).
+  Float (1.0.0 `0x700109fad0`; inferred 1.0.1 +0xd0 each). A missing Float is read as 0.0, and a time goes
+  to the timer `0x70007f3c90` (seconds -> a task on the framework's +0x60 list, a finished one for <= 0), so it
+  is instant (checked against the code 2026-11-17; earlier called "the Float reader"; LASAP names it Delay_Make). Recompiled code cannot unwind, so these are hooked (section 8.2).
 - Event action "walk Link": `0x7000111400` (from the event runner, lr `0x700108e4b0`) reads the parameters
   `direction` (int), `speed` (int), `distance` (float), `timeOut`; the target is an actor's position (+0xb0; the actor
   from [[ctx]+0x48]+0x80, a default `0x7001cc6e10` without one) plus direction table `0x70016ed494` (vec3s, 12 bytes)
@@ -560,7 +566,7 @@ this vtable); +0x168 = hit points (0 = dies). (miniboss.c)
 | `0x70008d1a30` | HasItem(item, count, index) (`HAS_ITEM`) | patches.py |
 | `0x70007e2b7c` / `0x70008d1a50` / `0x70008d090c` | HasItem(itemType) (EventFlow enum) / HasItemByKey / AddItemByKey (1.0.0 offsets; this range matched 1.0.1 everywhere the tables overlap) | save-format |
 | `0x70007e1c70` | AddPrizeByKey: looks up the prize row by symbol, calls AddPrize(row, count, index) `0x70001489c0` (rows 0-20) | shopsanity.c |
-| `0x700089b960` | ItemDrop roll (reads row +0x38 mAllowBuffReplace); also called by the heart-piece pickup `0x70000855a0` to add a heart piece | patches.py |
+| `0x700089b960` | ItemDrop roll (reads row +0x38 mAllowBuffReplace); also called by the seashell dropper's drop `0x70000855a0` (AreaShellDrop: "Seashell{N}"; earlier called the heart-piece pickup - checked 2026-11-17) | patches.py |
 | `0x70008c4510` | Item actor's "should I appear?": HasItem(item +0x2e8, 1, index +0xbc) | patches.py |
 | `0x7000a4a9b4` | Shopkeeper exit check: adds the carried good's item (good +0x488). LAS's steal patch is at `0x7000a4a8f0` | shopsanity.c |
 | `0x70008dd860` | Seashell Sensor check (skips a beacon whose +0x14c is 0); AreaShellDrop: +0x2b8 ShellBeacon, +0x2c8 seashell index, set-up `0x70000849f0`, removed `0x7000085510` once owned | shell_spots.c |
@@ -729,7 +735,7 @@ Generated from `runtime/game_addresses/runtime_v1_0_1.h` (and `_v1_0_0.h` for th
 | `BUFF_MUSIC_STOP` | `0x70000afa60` | same | Power-up music stop (restores volume on existing handles; does not restart the area track). |
 | `AREA_EVENT_TRIGGER` | `0x7000029520` | same | Zone manager -> actor vfunc +0x100: entering a room's camera zone hands a callback to the room's AreaEventBox (how a dungeon mini-boss is started). |
 | `LANMOLA_START` | `0x7000487ce0` | same | Lanmola's own start action (what his screen's event runs: up out of the sand); called with x0 = the actor. |
-| `TAILOR_PREPARE` | `0x70010d4ee0` | +0xd0 | Effect player (Tailor) prepare: (x0 tailor, x1 &{channel}, x2 &{effect name}). |
+| `TAILOR_PREPARE` | `0x70010d4ee0` | +0xd0 | Effect player (Tailor): (x0 tailor, x1 &{channel}, x2 &{effect name}) **stops** that sequence (not a prepare; called before TAILOR_PLAY to restart it). Section 4. |
 | `TAILOR_PLAY` | `0x70010d4410` | +0xd0 | Effect player play, same arguments. |
 | `PLAYER_MAX_HEALTH` | `0x7000df8260` | not mapped | GetMaxHealth(): quarter hearts = 12 + 4 x (containers + pieces / 4). |
 | `PLAY_ANIMATION` | `0x7000119810` | not mapped | An actor's play-animation (what an event's PlayAnimation runs): x0 the callback at event component +0xb0, x1 &{name ptr, len}, x2 mode (0 start), s0 blend time, s1 start frame. |
@@ -750,7 +756,7 @@ Generated from `runtime/game_addresses/runtime_v1_0_1.h` (and `_v1_0_0.h` for th
 | `PLAYER_VTABLE` | `0x7001c17b70` | not mapped | Link's actor class (every co-op Link is one). |
 | `PLAYER_COLLISION_VT` | `0x7001c501f0` | same | "PlayerCollision" component (Link +0x80; name inline at +0x18). Position vec3 at +0x80 (copy +0xb0), rotation quat at +0x90 (copy +0xc0). |
 | `SINKING_SWORD_VTABLE` | `0x7001c0e4e0` | same | SinkingSword item actor (type 0x194): what LAS uses for standing items, pots, bushes, digs. |
-| `ITEM_HEART_PIECE_VTABLE` | `0x7001bc9d50` | same | ItemHeartPiece actor (also keeps its name at +0x398: "ItemHeartPiece-<id>"). |
+| `ITEM_HEART_PIECE_VTABLE` | `0x7001bc9d50` | same | Despite the name: the item base's NPC component class, shared by every item (stored by `0x70008c3f10` and some 28 item-class functions, `0x7000889...`-`0x70008d7...`; its slots NpcComponent_Setup/Start). Not the ItemHeartPiece actor's own class (checked against the code 2026-11-17; LASAP names it ItemComponent_vtable). Item actors keep their name at +0x398 ("ItemHeartPiece-<id>"). |
 | `ENEMY_LIFE_VTABLE` | `0x7001b5be00` | same | Enemy life / reaction component class ("Zombie:ReactionComp", "ZolRed:EnemyReactionCom"... one class). +0x168 hit points (written 0 = dead on next hit check). |
 | `SHADOW_LINK_VTABLE` | `0x7001c16730` | same | Shadow Link actor class. |
 | `DELEGATE_JOB_VTABLE_LIVE` | `0x7001c51308` | same | Frame job class as rebuilt by the per-frame kick-off (main+0x15730); job lives at owner X+0xc8. |
@@ -863,14 +869,14 @@ site, not patch points. The instruction is what `tools/patches.py` asserts is th
 | `ADD_ITEM_SITE` | `0x70008d08e0` | same | `sub sp, sp, #0x50` | Prologue of the inner add-item (34 callers: events, chests, drops; AddItem wraps it). Dungeon items go to the current dungeon only. |
 | `PRIZE_ADD_SITE` | `0x70007e1d10` | same | `mov w2, w20` | In AddPrizeByKey (main+0x7e1c70): about to call AddPrize(row, count, index) (main+0x1489c0; rows 0-20 only). |
 | `HAS_ITEM` | `0x70008d1a30` | same | function | HasItem(x0 item, x1 count, x2 index). Called with 0x6f / 0x70 for the power-up buffs (powerup_music.c); 0x6f is the halving check in the enemy-hit path. |
-| `HEART_PIECE_ADD` | `0x700089b960` | same | function | Called by the heart-piece actor's pickup (main+0x855a0) to add a heart piece; `patches.py` also calls main+0x89b960 the ItemDrop "drop roll" (BUFF_REPLACE_SITE is inside it). |
+| `HEART_PIECE_ADD` | `0x700089b960` | same | function | Despite the name: the drop routine (the ItemDrop "drop roll": scans the Items sheet and spawns the drops; BUFF_REPLACE_SITE is inside it; LASAP: Enemy_DropItems, 41 enemy classes call it). The call at main+0x856e4 is the seashell dropper's (below). |
 | `BUFF_REPLACE_SITE` | `0x700089ba34` | same | `ldrb w8, [x24, #0x38]` | Drop roll reads its ItemDrop row's mAllowBuffReplace (+0x38): set, kill counters may turn the drop into a Piece of Power / Guardian Acorn. |
 | `TUNIC_CLEAR_SITES_0` | `0x70008d1118` | same | `and w9, w9, #0xffffffbf` | Add-item: blue tunic set, red (0x40) cleared from PlayerStatus+0x9c. |
 | `TUNIC_CLEAR_SITES_1` | `0x70008d12f8` | same | `and w9, w9, #0x7f` | Add-item: red tunic set, blue (0x80) cleared. |
 | `UNDERWATER_OWNED_SITE` | `0x70008c45b8` | same | `bl HasItem` | Item actor's "should I appear?" (main+0x8c4510): HasItem(item +0x2e8, 1, index +0xbc); x20 = the item actor. |
 | `UNDERWATER_OWNED_RETURN` | `0x70008c45bc` | same | return | Return address after that call. |
 | `UNDERWATER_VIEW_SITE` | `0x7000ff5590` | +0xd0 | `cset w27, ne` | Model set-up reads a material's `under_water` shader option (only such models show in the underwater view). |
-| `UNDERWATER_PICKUP_SITE` | `0x70000856e4` | same | `bl 0x89b960` | Heart-piece actor's pickup (main+0x855a0, x19 = actor) adds a heart piece. |
+| `UNDERWATER_PICKUP_SITE` | `0x70000856e4` | same | `bl 0x89b960` | In the seashell dropper's drop (main+0x855a0, x19 the AreaShellDrop - not a heart-piece pickup): drops "Seashell{N}" (N its +0x2c8) through the drop routine, then sets +0x2cc (checked against the code 2026-11-17: its slot in the AreaShellDrop vtable at `0x7001b55b88`, next to its removal `0x7000085510`; LASAP: AreaShellDropper_Drop). Upstream's underwater-items patch here tests x19 for a heart-piece item (`rt_underwater_skip_owned`: ITEM_HEART_PIECE_VTABLE or an "ItemHeartPiece-" name), which a dropper is not. |
 | `UNDERWATER_PICKUP_RETURN` | `0x70000856e8` | same | return | Return address after that call. |
 | `ITEM_EXPLANATION_SITE` | `0x7000eb6790` | +0xd0 | `ldr x22, [sp, #0xf0]` | Items page: the "UI:ItemExplanation_{n}" message just looked up (null = no text path). |
 | `ITEM_NAME_SITE` | `0x7000eb6728` | +0xd0 | `bl` | Items page: sets the item-name pane from "UI:ItemName_{0}". |
@@ -1116,4 +1122,5 @@ Plus 696 more patch sites not in the table: every `ldr xT, [xN, #0x4b8]` in main
    frame or so at the new spot before switching it off and skipping its updates (2026-11-16).
 2. Is there a function the game itself uses to register a newly made actor's collision with the current level?
 3. Unconfirmed in 1.0.1: the 1.0.0-era function offsets marked `(inferred)` above; save code offsets in 2.3.
-4. Not explained: Link +0x41, +0x1948; GAME_MGR +0x4a8 described both as the player entity and as the scene handle.
+4. Not explained: Link +0x41, +0x1948. (GAME_MGR +0x4a8, once described both as the player entity and as the scene
+   handle: the game state machine, whose +0x88 is the scene - section 2.1, 2026-11-17.)
