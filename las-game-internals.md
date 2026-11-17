@@ -26,7 +26,11 @@ the delta, or `not mapped` (0x0: the feature is off on 1.0.0 - every `COOP_*` si
 Observed pattern, from comparing the two tables: data/rodata and code up to at least main+0xded9f0 are identical
 (main+0xdf8260 too, per save-format.md);
 code from about main+0xe443fc (1.0.0) up to at least main+0x14311f0 is **+0xd0 in 1.0.1**. The boundary lies
-somewhere between those two points.
+somewhere between those two points. zeroZshadow/LASAP (`las-ap-exl/source/program/game/addr.hpp`) puts it exactly at
+main+0xdfaf44, up to .rodata (main+0x1434000), and tells the versions apart by the byte there (8 in 1.0.1, 0 in
+1.0.0); consistent with the points above, not checked here beyond them. LASAP's `scripts/re/las.sym` (1.0.0, about
+2,500 names; main offset = its address - 0x8504000) and its RE notes (PLAYER.md, EVENTS.md, FRAMEWORK.md) are the
+largest public name source for this game.
 
 **Important about the repo's comments.** Many non-co-op comments in `tools/patches.py` and `runtime/hle/*.c` were
 written against **1.0.0** and quote 1.0.0 offsets (inferred by matching them against both tables; e.g. "the HUD update main+0xeaa800" is 1.0.0; the 1.0.1 site
@@ -321,6 +325,8 @@ go" check `0x7000d58d70` holds kinds 18, 19, 21, 22, 23, 26 apart (mask 0x4ec000
 | `0x7000dcdae0` | Walk state | patches.py |
 | `0x7000db7d30` | Shield walk | patches.py |
 | `0x7000dd4950` | Door walk-in (x0 its state, x1 Link) | coop/spawn.inc |
+| `0x7000d555b0` | Walk-in start: Link (x1) walks to a target (x2: a struct, copied to Link +0x1810..+0x1848), +0x4ec = 0x10, state machine change to 0x10 (walk-in, kind 16); x0 gets a shared_ptr | coop.md (Camera areas) |
+| `0x7000d6eb50` | Its caller from events: w3 0..3 picks the speed (0: 2.25 a second; else 4.5) and a mode byte, x2 the target position | coop.md |
 | `0x7000dd8060` | "Open" state (waits for an event to move him on) | coop/events.inc |
 | `0x7000d92480` | Per-update "can I act" (DoAction) check | coop/events.inc |
 | `0x7000ded9f0` | 8-way stick snap -> 32-bit angle (2^32 = full turn, 0 = down) | patches.py |
@@ -524,6 +530,13 @@ this vtable); +0x168 = hit points (0 = dies). (miniboss.c)
   `0x700108dfc0`; 1.0.1 call site `0x700108df18`). Missing event parameters throw: String (1.0.0 `0x700109fb80`),
   Float (1.0.0 `0x700109fad0`; inferred 1.0.1 +0xd0 each). The Float reader `0x70007f3c90` treats time <= 0 as
   instant. Recompiled code cannot unwind, so these are hooked (section 8.2).
+- Event action "walk Link": `0x7000111400` (from the event runner, lr `0x700108e4b0`) reads the parameters
+  `direction` (int), `speed` (int), `distance` (float), `timeOut`; the target is an actor's position (+0xb0; the actor
+  from [[ctx]+0x48]+0x80, a default `0x7001cc6e10` without one) plus direction table `0x70016ed494` (vec3s, 12 bytes)
+  times the distance; it sets +0x509 on the context's object and walks the player through its interface (+0x1a0,
+  vtable +0x30, `0x70001002f0`) -> `0x7000d6eb50` -> `0x7000d555b0`. Seen as the second half of the camera-scroll
+  event (section 7.7). `0x70007fb8b0`, another event action run in it, reads the manager's player (+0x4b8) and his
+  camera (+0x318) and tests bit 0x40 of each one's +0x43 (meaning not found).
 - AreaEventBox (fight-room lock, boss / mini-boss start, cutscene trigger): bare collision shape `0x7000068110`;
   contact signal calls the box's fire `0x7000067210` (x0 box, x1 contact) for any Link, with no check; the box keeps
   one contact (+0x370, the last begun) and fires with it the next frame (`0x700006a980`).
@@ -610,6 +623,13 @@ Camera object (coop/camera.inc, coop.md):
 - A camera of kind <= 2 told of a new area tells the screen manager (`0x7000866130`), which makes every loaded screen
   outside it fresh (a room change).
 - Camera-area manager `0x7000836270`, signal at +0x750 (x1 = the area the manager's player now stands in).
+- Every camera answers the manager - one whose actor update is skipped too (the manager calls it). A camera with
+  +0x515 set that finds itself out of the new area answers with the scroll event: a level jump within the level, then
+  the "walk Link" event action (section 7.3) walks the manager's player half a tile into the area. The set-up
+  (`0x7000855040`) clears +0x515 on the Field for the manager's Link's camera only, so any other Link's camera -
+  one never set up, standing where its Link was made - scrolls the screen and walks Player 1 even on the Field
+  (LAS Recomp co-op, 2026-11-16: benched Links' cameras did it at every load; `COOP_CAMERA_SCROLL_SITE`
+  `0x70000bbdcc` lets only Player 1's camera answer).
 - View set-up `0x7000010540` (once per drawn frame): makes the shadow map's world box around the player (view +0x200
   min, +0x210 max; copied to a second view at `0x7000011228`); shadow projection fit `0x700100a460`; lookup matrix
   `0x7001009f30` (renderer "View" +0x2a0). Shadow map 2048 x 2048, one per frame.
