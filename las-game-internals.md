@@ -93,16 +93,16 @@ Pointer to the live save's PlayerStatus block (file offset 0x54C0; `save-format.
 |---|---|---|---|---|
 | +0x00 | 0x54C0 | char[0x40] | Current level name ("Field", "Lv01TailCave", "PanelAdventure"...) | doorjump.c, many |
 | +0x40 | 0x5500 | char[0x40] | Current screen / room ("11C" on the Field) | tracker_overlay.mm, save-format |
-| +0x80 | 0x5540 | u32 | Rupees (0-999) | save-format (inferred offset) |
+| +0x80 | 0x5540 | u32 | Rupees (0-999) | save-format; AddItem checked on 1.0.1 (7.4) |
 | +0x84 | 0x5544 | s16 | **Health**, quarter hearts | patches.py, coop |
 | +0x88 | 0x5548 | u64 | Secret Seashells found, a bit per index (0-49) | shell_spots.c |
 | +0x90 | 0x5550 | u64 | Heart pieces, a bit per piece (0-31) | save-format (inferred offset) |
 | +0x98 | 0x5558 | u16 | Heart containers, bits 0-8 | save-format (inferred offset) |
-| +0x9a | 0x555A | u8 | Trade item (0 none .. 0xE) | save-format (inferred offset) |
+| +0x9a | 0x555A | u8 | Trade item (0 none .. 0xE) | save-format; AddItem checked on 1.0.1 (7.4) |
 | +0x9b | 0x555B | u8 | Ocarina songs (bits) | save-format (inferred offset) |
 | +0x9c | 0x555C | u8 | Upgrades; tunics 0x40 red, 0x80 blue. Negative (bit 7) halves enemy hits | patches.py, qol.c |
 | +0x9d | 0x555D | u8 | Companion: 0 none, 1 BowWow, 2 Marin, 3 Ghost, 4 Flying Rooster | pets.c |
-| +0x9e / +0x9f / +0xa0 | 0x555E-0x5560 | u8 | Bombs / arrows / magic powder | save-format (inferred offset) |
+| +0x9e / +0x9f / +0xa0 | 0x555E-0x5560 | u8 | Bombs / arrows / magic powder | save-format; AddItem checked on 1.0.1 (7.4) |
 | +0xa2 | 0x5562 | u8 | Item slot on **Y** (0xFF empty) | patches.py, escape.c |
 | +0xa3 | 0x5563 | u8 | Item slot on **X** | patches.py, escape.c |
 | +0xa4 | | u8 | Kill counter ("PowerUp" = Piece of Power when past a threshold; saturates at 255) | qol.c |
@@ -110,9 +110,9 @@ Pointer to the live save's PlayerStatus block (file offset 0x54C0; `save-format.
 | +0xa8 | 0x5568 | u32 | Inventory bits (bit n = item slot n: 0 sword .. 13/14/15 bottles 1/2/3) | dpad_items.c, escape.c |
 | +0xa9 | 0x5569 | u8 | Bit 5 = first bottle owned (slot 0xd), bit 7 = third bottle owned (slot 0xf) | patches.py |
 | +0xac | 0x556C | u32 | Key items / instruments (bit 0 Flippers, bits 7-14 instruments). patches.py: Moblin Chief's init deletes him unless "+0xac bit 7" (a story bit) is set; save-format lists bit 7 as the Full Moon Cello | patches.py, warp.c, save-format |
-| +0xae | 0x556E | u8 | Seashell Sensor (bit 0) | save-format (inferred offset) |
+| +0xae | 0x556E | u8 | Seashell Sensor (bit 0) | save-format; AddItem checked on 1.0.1 (7.4) |
 | +0xc0 | 0x5580 | u8 | Bottle contents: bit n = bottle n holds something (empty = clear) | patches.py |
-| +0xc2 | 0x5582 | u8 | Golden Leaves, bits 0-4 | save-format (inferred offset) |
+| +0xc2 | 0x5582 | u8 | Golden Leaves, bits 0-4 | save-format; AddItem checked on 1.0.1 (7.4) |
 | +0x120 | 0x55E0 | u8 | Hero Mode (== 1: damage << 1) | patches.py, difficulty.mm |
 
 Kill counters are raised by shared death code `0x70007c6950`; the ItemDrop roll (`0x700089b960`) checks them for rows
@@ -576,6 +576,29 @@ this vtable); +0x168 = hit points (0 = dies). (miniboss.c)
 Item ids (AddItem): bomb 4, magic powder 11, compass 44, map 45, stone beak 47, small key 48, Nightmare Key 49,
 arrow 60, blue rupee 102, PanelDungeonPiece 114. Items-page item slots checked by the 12 predicates, in order:
 0xf, 0xe, 0xd, 0x6, 0x5, 0x4, 0x3, 0x2, 0x7, 0xc, 0x8, 0x9. HasItem(0x70) and HasItem(0x6f) are what powerup_music.c checks for an active power-up (which is the Piece of Power and which the Guardian Acorn is not stated; 0x6f is also the enemy-hit halving check).
+
+What AddItem(item, count, index) does to the save (PlayerStatus, 2.2), checked on 1.0.1 one item at a time
+(`LARECOMP_GIVE_ITEM`, the save compared before and after; LAS Recomp Co-Op's online port grants through it,
+`laonline_v12.c`):
+
+| Item id (count, index) | Effect |
+|---|---|
+| 0 / 2 | Sword / shield, level 1: inventory bit 0 / 1 |
+| 1 / 3 / 14 | Sword / shield / Power Bracelet, level 2: upgrades (+0x9c) bit 0 / 1 / 2 |
+| 4 (n) | Bombs + n, clipped at the bag's size |
+| 5 / 6 / 7 / 8 / 9 | Bow / Hookshot / Boomerang / Magic Rod / Shovel: inventory bit 3 / 4 / 5 / 6 / 7 |
+| 11 (n) | Magic powder + n |
+| 12 / 13 / 15 / 16 | Roc's Feather / Power Bracelet (level 1) / Pegasus Boots / Ocarina: inventory bit 9 / 10 / 11 / 12 |
+| 23 (index n) | Golden Leaf n: +0xc2 bit n |
+| 29..40 | Trade item (+0x9a) = id - 28 (1..12) |
+| 42 / 43 | Trade item = 13 / 14 (there is no item 41) |
+| 60 (n) | Arrows; nothing without the Bow |
+| 100 (n) | Health + 4n quarter hearts, up to the maximum |
+| 101 / 102 / 104 / 105 / 106 / 108 | Rupees + 1 / 5 / 20 / 50 / 100 / 300, once: the count is ignored |
+| 113 (index 0..2) | Bottle 1..3: inventory bit 13..15 |
+| 116 | Seashell Sensor: +0xae = 1 |
+| 123 / 124 / 125 | Capacity upgrades: upgrades (+0x9c) bit 3 / 4 / 5 |
+
 
 ### 7.5 HUD, menus, text (ui2d)
 
